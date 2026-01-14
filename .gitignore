@@ -205,3 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- IGNORE DATA FILES ---
+*.csv
+*.xlsx
+data/*.csv
+
+# --- IGNORE PYTHON SYSTEM FILES ---
+__pycache__/
+venv/
+env/
+
+# --- IGNORE LARGE ML MODELS ---
+*.pkl
+*.joblib
+
+# --- IGNORE OS JUNK ---
+Thumbs.db

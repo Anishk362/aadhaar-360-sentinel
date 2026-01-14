@@ -1,0 +1,17 @@
+=== PROJECT SCHEMA ===
+
+1. CSV FORMAT (Member 1 Output -> Member 2 & 3 Input)
+   - center_id       (Integer)
+   - timestamp       (Datetime: YYYY-MM-DD HH:MM:SS)
+   - duration_sec    (Integer)
+   - gender          (String: 'M' or 'F')
+   - retry_count     (Integer)
+
+2. API FORMAT (Member 4 Output -> Member 5 Input)
+   {
+      "status": "Critical",      // Options: Critical, Warning, Safe
+      "alerts": [                // List of strings
+          "Ghost Center Detected",
+          "High Gender Gap"
+      ]
+   }
