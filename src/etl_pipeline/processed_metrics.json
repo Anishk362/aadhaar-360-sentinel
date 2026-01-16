@@ -1,0 +1,26 @@
+{
+    "generated_at": "2026-01-16T10:30:00Z",
+    "data_level": "district",
+    "records": [
+      {
+        "State": "Uttar Pradesh",
+        "District": "Lucknow",
+        "Pincode": "226001",
+        "Mobile_Number_Updates": 18500,
+        "Age_Group_0_5": 4200,
+        "Gender_Female": 98000,
+        "Total_Enrolment": 180000,
+        "Biometric_Updates": [1200, 1350, 1420, 1600, 1550]
+      },
+      {
+        "State": "Maharashtra",
+        "District": "Pune",
+        "Pincode": "411001",
+        "Mobile_Number_Updates": 9200,
+        "Age_Group_0_5": 3100,
+        "Gender_Female": 76000,
+        "Total_Enrolment": 150000,
+        "Biometric_Updates": [980, 1020, 1100, 1080, 1150]
+      }
+    ]
+  }
