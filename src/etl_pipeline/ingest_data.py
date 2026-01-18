@@ -3,6 +3,27 @@ import glob
 import json
 import os
 
+def normalize_location_names(df):
+    
+    df["state"] = (
+        df["state"]
+        .astype(str)
+        .str.strip()
+        .str.replace("&", "And", regex=False)
+        .str.title()
+    )
+
+    df["district"] = (
+        df["district"]
+        .astype(str)
+        .str.strip()
+        .str.replace("&", "And", regex=False)
+        .str.title()
+    )
+
+    return df
+
+
 BASE_PATH = "../../data/raw_csvs"
 
 def load_chunked_data(folder_name):
@@ -23,6 +44,11 @@ def main():
     df_bio = load_chunked_data("biometric")
     df_demo = load_chunked_data("demographic")
 
+    df_enrol = normalize_location_names(df_enrol)
+    df_bio   = normalize_location_names(df_bio)
+    df_demo  = normalize_location_names(df_demo)
+
+
     # ===============================
     # SAFETY CHECKS (VERY IMPORTANT)
     # ===============================
@@ -42,7 +68,7 @@ def main():
     # -------------------------------
     # ENROLMENT → Total_Enrolment
     # -------------------------------
-    df_enrol["Total_Enrolment"] = (
+    df_enrol["total_enrolment"] = (
         df_enrol["age_0_5"] +
         df_enrol["age_5_17"] +
         df_enrol["age_18_greater"]
@@ -50,48 +76,53 @@ def main():
 
     enrol_agg = (
         df_enrol
-        .groupby(["state", "district"], as_index=False)["Total_Enrolment"]
-        .sum()
+        .groupby(["state", "district"], as_index=False)
+        .agg(total_enrolment=("total_enrolment", "sum"))
     )
 
     # -------------------------------
-    # BIOMETRIC → Gender_Female (proxy)
+    # BIOMETRIC → FEMALE COUNT (proxy)
     # -------------------------------
-    df_bio["Gender_Female"] = (
+    df_bio["female_count"] = (
         df_bio["bio_age_5_17"] +
         df_bio["bio_age_17_"]
     )
 
     bio_agg = (
         df_bio
-        .groupby(["state", "district"], as_index=False)["Gender_Female"]
-        .sum()
+        .groupby(["state", "district"], as_index=False)
+        .agg(female_count=("female_count", "sum"))
     )
 
     # -------------------------------
     # DEMOGRAPHIC → Mobile_Number_Updates (proxy)
     # -------------------------------
-    df_demo["Mobile_Number_Updates"] = (
+    df_demo["mobile_update_volume"] = (
         df_demo["demo_age_5_17"] +
         df_demo["demo_age_17_"]
     )
 
     demo_agg = (
         df_demo
-        .groupby(["state", "district"], as_index=False)["Mobile_Number_Updates"]
-        .sum()
+        .groupby(["state", "district"], as_index=False)
+        .agg(mobile_update_volume=("mobile_update_volume", "sum"))
     )
 
     # -------------------------------
     # MERGE ALL
     # -------------------------------
-    final_df = enrol_agg.merge(
-        bio_agg, on=["state", "district"], how="left"
-    ).merge(
-        demo_agg, on=["state", "district"], how="left"
+    final_df = (
+        enrol_agg
+        .merge(bio_agg, on=["state", "district"], how="left")
+        .merge(demo_agg, on=["state", "district"], how="left")
     )
 
     final_df.fillna(0, inplace=True)
+
+    # INCLUSIVITY RATIO (DECIMAL)
+    final_df["female_enrolment_pct"] = (
+        final_df["female_count"] / final_df["total_enrolment"]
+    ).round(3)
 
     # Rename columns to API contract
     final_df.rename(columns={
@@ -99,8 +130,16 @@ def main():
         "district": "District"
     }, inplace=True)
 
+    final_df = final_df[[
+        "State",
+        "District", 
+        "mobile_update_volume",
+        "female_enrolment_pct",
+        "total_enrolment"
+    ]]
+
     # -------------------------------
-    # SAVE JSON
+    # SAVE OUTPUT
     # -------------------------------
     output_path = "processed_metrics.json"
     final_df.to_json(output_path, orient="records", indent=2)
