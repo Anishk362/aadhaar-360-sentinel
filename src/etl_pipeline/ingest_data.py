@@ -5,37 +5,43 @@ import os
 import re
 
 # --- CONFIGURATION ---
+# Points to the directory where the CSVs are stored
 BASE_PATH = "data/raw_csvs"
-OUTPUT_PATH = "processed_metrics.json"
 
-# Professor's Mandatory Replacement Map
-# This fixes the lexical fragmentation discovered in your audit
+# CRITICAL PATH FIX: Saves specifically inside the src/etl_pipeline folder 
+# This ensures train_forecaster.py and app.py can find the 'Source of Truth'
+OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_metrics.json")
+
+# Member 2: Optimized Lexical Standardization Map
+# Collapses legacy fragments and typos into unified National entries
 REPLACEMENT_MAP = {
     "WESTBENGAL": "WEST BENGAL",
-    "WEST BENGAL": "WEST BENGAL",
-    "WESTBENGAL": "WEST BENGAL",
+    "WEST BANGAL": "WEST BENGAL",
+    "JAMMU KASHMIR": "JAMMU & KASHMIR",
+    "JAMMU AND KASHMIR": "JAMMU & KASHMIR",
+    "THE DADRA AND NAGAR HAVELI AND DAMAN AND DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
+    "DADRA AND NAGAR HAVELI AND DAMAN AND DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
+    "DADRA AND NAGAR HAVELI": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
+    "DAMAN AND DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
+    "DAMAN DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
     "ORISSA": "ODISHA",
     "PONDICHERRY": "PUDUCHERRY",
-    "ANUGAL": "ANGUL"
 }
 
 def clean_and_standardize(s):
     """
-    Member 2's Cleaning Engine:
-    1. Forces Uppercase & Strips spaces.
-    2. Removes symbols (*, #, etc.) via Regex.
-    3. Collapses multiple spaces into one.
-    4. Applies the hard replacement map.
+    Standardization Engine:
+    1. Forces Uppercase & Strips whitespace.
+    2. Removes symbols via Regex.
+    3. Applies the hard replacement map for National unification.
     """
     if not isinstance(s, str):
         s = str(s)
     
-    # Standardize casing and symbols
     s = s.upper().strip()
-    s = re.sub(r'[^A-Z0-9\s]', '', s)  # Remove symbols like *
-    s = " ".join(s.split())           # Fix double spaces like "WEST  BENGAL"
+    s = re.sub(r'[^A-Z0-9\s]', '', s) 
+    s = " ".join(s.split()) 
     
-    # Apply hard replacements
     if s in REPLACEMENT_MAP:
         s = REPLACEMENT_MAP[s]
     return s
@@ -49,7 +55,6 @@ def load_chunked_data(folder_name):
 
     df_list = []
     for f in files:
-        # Standardize headers while reading
         temp_df = pd.read_csv(f)
         temp_df.columns = [c.strip().lower() for c in temp_df.columns]
         df_list.append(temp_df)
@@ -64,16 +69,19 @@ def main():
     df_bio = load_chunked_data("biometric")
     df_demo = load_chunked_data("demographic")
 
-    # 2. DATA INTEGRITY PASS
+    # 2. DATA INTEGRITY PASS (Fixes SettingWithCopyWarning)
+    processed_dfs = []
     for df in [df_enrol, df_bio, df_demo]:
-        # Filter out rows where state/district is just numbers (the 100000 bug)
-        df = df[~df['state'].astype(str).str.isnumeric()]
+        # Filter and create an explicit copy to avoid Pandas indexing warnings
+        clean_df = df[~df['state'].astype(str).str.isnumeric()].copy()
         
-        # Apply the Standardization Engine
-        df['state'] = df['state'].apply(clean_and_standardize)
-        df['district'] = df['district'].apply(clean_and_standardize)
+        clean_df['state'] = clean_df['state'].apply(clean_and_standardize)
+        clean_df['district'] = clean_df['district'].apply(clean_and_standardize)
+        processed_dfs.append(clean_df)
+    
+    df_enrol, df_bio, df_demo = processed_dfs
 
-    # 3. TRANSFORMATION: ENROLMENT (Summing counts)
+    # 3. TRANSFORMATION: ENROLMENT
     df_enrol["total_enrolment"] = (
         df_enrol["age_0_5"] + 
         df_enrol["age_5_17"] + 
@@ -81,7 +89,7 @@ def main():
     )
     enrol_agg = df_enrol.groupby(["state", "district"], as_index=False)["total_enrolment"].sum()
 
-    # 4. TRANSFORMATION: BIOMETRIC (Summing female counts)
+    # 4. TRANSFORMATION: BIOMETRIC (Calculates raw female count)
     df_bio["female_count"] = df_bio["bio_age_5_17"] + df_bio["bio_age_17_"]
     bio_agg = df_bio.groupby(["state", "district"], as_index=False)["female_count"].sum()
 
@@ -92,23 +100,16 @@ def main():
     # 6. THE INTELLIGENCE MERGE
     final_df = enrol_agg.merge(bio_agg, on=["state", "district"], how="left")
     final_df = final_df.merge(demo_agg, on=["state", "district"], how="left")
-    
-    # Fill gaps with 0 before calculation
     final_df.fillna(0, inplace=True)
 
-    # 7. FEATURE ENGINEERING: FEMALE RATIO (Inclusivity Pillar)
-    # Important: Ratio = Sum(Female) / Sum(Total)
+    # 7. FEATURE ENGINEERING: DISTRICT-LEVEL RATIO
     final_df["female_enrolment_pct"] = (
         final_df["female_count"] / final_df["total_enrolment"]
-    ).fillna(0)
-    
-    # Cap at 1.0 to prevent data anomalies
-    final_df["female_enrolment_pct"] = final_df["female_enrolment_pct"].clip(upper=1.0)
+    ).fillna(0).clip(upper=1.0)
 
     # 8. EXPORTING TO API CONTRACT
     final_df.rename(columns={"state": "State", "district": "District"}, inplace=True)
     
-    # Final selection of columns for Member 4 & 5
     output_df = final_df[[
         "State", 
         "District", 
@@ -117,7 +118,7 @@ def main():
         "female_enrolment_pct"
     ]]
 
-    # Save to project root
+    # Final Export
     output_df.to_json(OUTPUT_PATH, orient="records", indent=2)
     
     print(f"✅ ETL COMPLETE: {len(output_df)} Normalized Records Generated.")

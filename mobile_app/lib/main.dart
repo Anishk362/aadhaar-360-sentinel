@@ -53,7 +53,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final String baseUrl = "http://127.0.0.1:5001/api";
   
   // USE THIS FOR WEB (CHROME):
-  // final String baseUrl = "http://127.0.0.1:5001/api"; 
+  // final String baseUrl = "http://192.168.39.123:5001/api"; 
 
   @override
   void initState() {
@@ -203,22 +203,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // --- WIDGET: DASHBOARD ---
-  Widget _buildReportView() {
-    final location = auditData!['location'];
+Widget _buildReportView() {
+    final location = auditData!['location'] ?? "Unknown";
     final cards = auditData!['cards'];
     
     // Parsing Security Data
     final secStatus = cards['security']['status']; 
-    final secMsg = cards['security']['message'];
+    final secMsg = "Volume: ${cards['security']['mobile_update_volume']}"; 
     
-    // Parsing Inclusivity Data
-    final incStatus = cards['inclusivity']['status'];
-    final incMsg = "Gender gap is ${50 - cards['inclusivity']['female_enrolment_pct']}% below target.";
+    // Logic: Convert raw ratio to percentage for UI visualization
+    final double femaleRatio = (cards['inclusivity']['female_enrolment_pct'] as num).toDouble();
+    final double femalePercentage = femaleRatio * 100;
+    final double malePercentage = 100 - femalePercentage;
+    
+    // Parsing Inclusivity Data - Target benchmark is 50%
+    final incMsg = "Female: ${femalePercentage.toStringAsFixed(1)}% (${(50 - femalePercentage).toStringAsFixed(1)}% gap)";
 
-    // Parsing Forecast Data
+    // Parsing Forecast Data from Member 3's ML Model
     final forecast = List<dynamic>.from(cards['efficiency']['biometric_traffic_trend']);
 
-    // Colors
+    // UI Feedback Colors based on Risk Logic
     final isCritical = secStatus == "CRITICAL";
     final securityColor = isCritical ? Colors.red.shade50 : Colors.green.shade50;
     final securityIconColor = isCritical ? Colors.red : Colors.green;
@@ -227,26 +231,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Text("$location Analysis", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
-        const Text("Pin Code Breakdown", style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const Text("Gender Inclusivity Ratio", style: TextStyle(fontSize: 12, color: Colors.grey)),
         
-        // Donut Chart Placeholder (Visual Appeal)
+        // Data-Driven PieChart: Visualizing the Gender Gap
         SizedBox(
-          height: 150,
+          height: 180,
           child: PieChart(
             PieChartData(
               sections: [
-                PieChartSectionData(value: 40, color: Colors.purple, title: "Pin-03", radius: 50),
-                PieChartSectionData(value: 30, color: Colors.deepPurple, title: "Pin-04", radius: 50),
-                PieChartSectionData(value: 15, color: Colors.redAccent, title: "Pin-01", radius: 50),
-                PieChartSectionData(value: 15, color: Colors.purpleAccent, title: "Pin-02", radius: 50),
+                PieChartSectionData(
+                  value: femalePercentage,
+                  color: Colors.purple,
+                  title: "F ${femalePercentage.toStringAsFixed(1)}%",
+                  radius: 55,
+                  titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                PieChartSectionData(
+                  value: malePercentage,
+                  color: const Color(0xFF00695C), // Govt Teal Theme
+                  title: "M ${malePercentage.toStringAsFixed(1)}%",
+                  radius: 50,
+                  titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
               ],
               centerSpaceRadius: 40,
+              sectionsSpace: 2,
             ),
           ),
         ),
         const SizedBox(height: 20),
 
-        // ALERTS ROW
+        // Strategic Audit Alert Cards
         Row(
           children: [
             Expanded(
@@ -260,19 +275,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
 
         const SizedBox(height: 20),
-        const Text("Efficiency Trend (3 Months)", style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text("Efficiency Trend (3 Months Forecast)", style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
 
-        // BAR CHART (Member 3's Forecast)
+        // ML-Driven Bar Chart: Predicted Biometric Traffic
         Container(
           height: 200,
           padding: const EdgeInsets.all(16),
           child: BarChart(
             BarChartData(
               alignment: BarChartAlignment.spaceAround,
-              maxY: (forecast.last as num).toDouble() * 1.2,
-              barTouchData: BarTouchData(enabled: false),
-              titlesData: FlTitlesData(show: false),
+              maxY: (forecast.last as num).toDouble() * 1.3, // Dynamic scaling
+              barTouchData: BarTouchData(enabled: true),
+              titlesData: const FlTitlesData(show: false),
               borderData: FlBorderData(show: false),
               gridData: const FlGridData(show: false),
               barGroups: [
@@ -288,14 +303,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // --- HELPER FUNCTIONS ---
-  BarChartGroupData _buildBar(int x, var y, Color color) {
+  BarChartGroupData _buildBar(int x, dynamic y, Color color) {
+    double value = (y as num).toDouble();
     return BarChartGroupData(x: x, barRods: [
       BarChartRodData(
-        toY: (y as num).toDouble(), 
+        toY: value, 
         color: color, 
-        width: 30, 
+        width: 35, 
         borderRadius: BorderRadius.circular(6),
-        backDrawRodData: BackgroundBarChartRodData(show: true, toY: (y as num).toDouble() * 1.2, color: Colors.grey.shade100),
+        backDrawRodData: BackgroundBarChartRodData(
+          show: true, 
+          toY: value * 1.3, 
+          color: Colors.grey.shade100
+        ),
       )
     ]);
   }
