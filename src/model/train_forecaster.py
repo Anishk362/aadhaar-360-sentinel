@@ -28,6 +28,10 @@ def load_data():
 
 # ---------------- SIMULATE HISTORY ----------------
 def simulate_history(base_volume, months=6):
+    """
+    Simulate historical monthly mobile update volume
+    so Prophet has sufficient time points.
+    """
     dates = pd.date_range(end=pd.Timestamp.today(), periods=months, freq="M")
     noise = np.random.normal(0, base_volume * 0.05, months)
     values = np.maximum(base_volume + noise, 0)
@@ -42,7 +46,7 @@ def generate_state_forecasts(df):
     for state in sorted(df["State"].unique()):
         state_df = df[df["State"] == state]
 
-        # ✅ Directly use normalized column
+        # ETL v3.0 provides this directly
         base_volume = state_df["mobile_update_volume"].sum()
 
         ts_df = simulate_history(base_volume)
@@ -57,20 +61,26 @@ def generate_state_forecasts(df):
         future = model.make_future_dataframe(periods=3, freq="M")
         forecast = model.predict(future)
 
-        forecasts[state] = forecast.tail(3)["yhat"].round().astype(int).tolist()
+        forecasts[state] = (
+            forecast.tail(3)["yhat"]
+            .round()
+            .astype(int)
+            .tolist()
+        )
 
     return forecasts
 
 
 # ---------------- MAIN ----------------
 def main():
-    print("Loading normalized metrics (v3.0)...")
+    print("Loading normalized metrics (ETL v3.0)...")
     df = load_data()
 
     print("Generating state-level forecasts...")
     state_forecasts = generate_state_forecasts(df)
 
     print("Saving forecast dictionary...")
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(state_forecasts, OUTPUT_PATH)
 
     print(f"✅ Forecasting complete for {len(state_forecasts)} states")
