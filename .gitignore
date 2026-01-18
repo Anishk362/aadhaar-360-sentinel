@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -210,6 +209,7 @@ __marimo__/
 *.csv
 *.xlsx
 data/*.csv
+*.json
 
 # --- IGNORE PYTHON SYSTEM FILES ---
 __pycache__/
@@ -222,3 +222,5 @@ env/
 
 # --- IGNORE OS JUNK ---
 Thumbs.db
+.DS_Store
+.vscode/
