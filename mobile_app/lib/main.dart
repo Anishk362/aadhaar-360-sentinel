@@ -16,7 +16,7 @@ class AadhaarDarpanApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Aadhaar Darpan Intel V3.0',
+      title: 'Aadhaar Darpan Intel V4.0',
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -24,14 +24,13 @@ class AadhaarDarpanApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         textTheme: GoogleFonts.latoTextTheme(),
-        scaffoldBackgroundColor: const Color(0xFFF5F7FA), // Light Grey BG
+        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
       ),
       home: const DashboardScreen(),
     );
   }
 }
 
-// --- MAIN DASHBOARD SCREEN ---
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -40,28 +39,22 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // --- 1. STATE VARIABLES ---
-  Map<String, dynamic>? metadata; // Stores State -> [District list]
-  Map<String, dynamic>? auditData; // Stores the final Intelligence Report
-  
+  Map<String, dynamic>? metadata;
+  Map<String, dynamic>? auditData;
   String? selectedState;
   String? selectedDistrict;
   bool isLoading = false;
 
-  // --- 2. API CONFIGURATION ---
-  // USE THIS FOR ANDROID EMULATOR:
+  // --- API CONFIGURATION ---
+  // Change this to your Computer's IP if testing on a real mobile device
   final String baseUrl = "http://127.0.0.1:5001/api";
-  
-  // USE THIS FOR WEB (CHROME):
-  // final String baseUrl = "http://192.168.39.123:5001/api"; 
 
   @override
   void initState() {
     super.initState();
-    _fetchMetadata(); // Load dropdowns immediately
+    _fetchMetadata();
   }
 
-  // --- 3. FETCH METADATA (States & Districts) ---
   Future<void> _fetchMetadata() async {
     try {
       final response = await http.get(Uri.parse('$baseUrl/metadata'));
@@ -71,26 +64,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
       }
     } catch (e) {
-      print("CRITICAL ERROR: Is Python running? $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Backend Offline. Run 'python app.py'")),
+        const SnackBar(content: Text("Backend Offline. Ensure Flask is running.")),
       );
     }
   }
 
-  // --- 4. FETCH INTELLIGENCE REPORT ---
   Future<void> _fetchAuditReport() async {
     if (selectedState == null) return;
-
     setState(() => isLoading = true);
-    
-    // If district is null, send empty string to get State Aggregate
     String districtParam = selectedDistrict ?? "";
-    
     try {
       final uri = Uri.parse('$baseUrl/audit?state=$selectedState&district=$districtParam');
       final response = await http.get(uri);
-
       if (response.statusCode == 200) {
         setState(() {
           auditData = json.decode(response.body);
@@ -103,12 +89,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // --- 5. UI BUILDER ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Aadhaar Darpan: Intel V3.0", 
+        title: const Text("Aadhaar Darpan: Intel V4.0", 
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF00695C),
         centerTitle: true,
@@ -116,9 +101,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () {
-              selectedState = null;
-              selectedDistrict = null;
-              auditData = null;
+              setState(() {
+                selectedState = null;
+                selectedDistrict = null;
+                auditData = null;
+              });
               _fetchMetadata();
             },
           )
@@ -142,7 +129,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- WIDGET: DROPDOWNS ---
   Widget _buildDeepDiveSection() {
     return Card(
       elevation: 2,
@@ -153,48 +139,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Deep Dive Analysis", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text("Regional Readiness Audit", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 15),
-            
-            // STATE DROPDOWN
-            Container(
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-              child: DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: "Select State", border: OutlineInputBorder()),
-                value: selectedState,
-                items: metadata?.keys.map((state) {
-                  return DropdownMenuItem(value: state, child: Text(state));
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedState = value;
-                    selectedDistrict = null; // Reset district
-                    _fetchAuditReport(); // Auto-fetch state view
-                  });
-                },
-              ),
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: "Select State", border: OutlineInputBorder()),
+              value: selectedState,
+              items: metadata?.keys.map((state) => DropdownMenuItem(value: state, child: Text(state))).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedState = value;
+                  selectedDistrict = null;
+                  _fetchAuditReport();
+                });
+              },
             ),
             const SizedBox(height: 15),
-
-            // DISTRICT DROPDOWN
-            Container(
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-              child: DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: "Select District", border: OutlineInputBorder()),
-                value: selectedDistrict,
-                // Logic: List is empty if no state is selected
-                items: selectedState == null 
-                    ? [] 
-                    : (metadata![selectedState] as List).map<DropdownMenuItem<String>>((district) {
-                        return DropdownMenuItem(value: district.toString(), child: Text(district.toString()));
-                      }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedDistrict = value;
-                    _fetchAuditReport();
-                  });
-                },
-              ),
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: "Select District", border: OutlineInputBorder()),
+              value: selectedDistrict,
+              items: selectedState == null 
+                  ? [] 
+                  : (metadata![selectedState] as List).map<DropdownMenuItem<String>>((district) {
+                      return DropdownMenuItem(value: district.toString(), child: Text(district.toString()));
+                    }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedDistrict = value;
+                  _fetchAuditReport();
+                });
+              },
             ),
           ],
         ),
@@ -202,54 +175,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- WIDGET: DASHBOARD ---
-Widget _buildReportView() {
+  Widget _buildReportView() {
     final location = auditData!['location'] ?? "Unknown";
     final cards = auditData!['cards'];
     
-    // Parsing Security Data
+    // --- PILLAR 2: SERVICE ACCESS RISK ---
     final secStatus = cards['security']['status']; 
-    final secMsg = "Volume: ${cards['security']['mobile_update_volume']}"; 
-    
-    // Logic: Convert raw ratio to percentage for UI visualization
-    final double femaleRatio = (cards['inclusivity']['female_enrolment_pct'] as num).toDouble();
-    final double femalePercentage = femaleRatio * 100;
-    final double malePercentage = 100 - femalePercentage;
-    
-    // Parsing Inclusivity Data - Target benchmark is 50%
-    final incMsg = "Female: ${femalePercentage.toStringAsFixed(1)}% (${(50 - femalePercentage).toStringAsFixed(1)}% gap)";
+    final double accessVal = (cards['security']['value'] as num).toDouble();
+    final secMsg = "Active Access: $accessVal%"; 
 
-    // Parsing Forecast Data from Member 3's ML Model
+    // --- PILLAR 1: CHILD SATURATION ---
+    final double saturationRatio = (cards['inclusivity']['value'] as num).toDouble();
+    final double youthPercentage = saturationRatio * 100;
+    final double adultPercentage = 100 - youthPercentage;
+    final String satStatus = cards['inclusivity']['status'];
+    final incMsg = "Youth Onboarding: ${youthPercentage.toStringAsFixed(1)}%\nStatus: $satStatus";
+
+    // --- PILLAR 3: INFRASTRUCTURE FORECAST ---
     final forecast = List<dynamic>.from(cards['efficiency']['biometric_traffic_trend']);
 
-    // UI Feedback Colors based on Risk Logic
-    final isCritical = secStatus == "CRITICAL";
-    final securityColor = isCritical ? Colors.red.shade50 : Colors.green.shade50;
-    final securityIconColor = isCritical ? Colors.red : Colors.green;
+    final isCritical = secStatus == "CRITICAL" || satStatus == "CRITICAL";
+    final statusColor = isCritical ? Colors.red.shade50 : Colors.green.shade50;
+    final iconColor = isCritical ? Colors.red : Colors.green;
 
     return Column(
       children: [
         Text("$location Analysis", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
-        const Text("Gender Inclusivity Ratio", style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const Text("Generation Saturation Index", style: TextStyle(fontSize: 12, color: Colors.grey)),
         
-        // Data-Driven PieChart: Visualizing the Gender Gap
         SizedBox(
-          height: 180,
+          height: 220,
           child: PieChart(
             PieChartData(
               sections: [
                 PieChartSectionData(
-                  value: femalePercentage,
+                  value: youthPercentage < 1 ? 1 : youthPercentage, // Force visibility
                   color: Colors.purple,
-                  title: "F ${femalePercentage.toStringAsFixed(1)}%",
+                  title: "Youth ${youthPercentage.toStringAsFixed(1)}%",
                   radius: 55,
                   titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 PieChartSectionData(
-                  value: malePercentage,
-                  color: const Color(0xFF00695C), // Govt Teal Theme
-                  title: "M ${malePercentage.toStringAsFixed(1)}%",
+                  value: adultPercentage,
+                  color: const Color(0xFF00695C),
+                  title: "Adults ${adultPercentage.toStringAsFixed(1)}%",
                   radius: 50,
                   titleStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
@@ -261,35 +231,32 @@ Widget _buildReportView() {
         ),
         const SizedBox(height: 20),
 
-        // Strategic Audit Alert Cards
         Row(
           children: [
             Expanded(
-              child: _buildStatusCard("Security Status", secMsg, securityColor, securityIconColor),
+              child: _buildStatusCard("Service Access Risk", secMsg, statusColor, iconColor, Icons.wifi_tethering),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: _buildStatusCard("Inclusivity", incMsg, Colors.blue.shade50, Colors.blue),
+              child: _buildStatusCard("Child Saturation", incMsg, Colors.blue.shade50, Colors.blue, Icons.child_care),
             ),
           ],
         ),
 
         const SizedBox(height: 20),
-        const Text("Efficiency Trend (3 Months Forecast)", style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text("Infrastructure Load Forecast (3 Mo)", style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
 
-        // ML-Driven Bar Chart: Predicted Biometric Traffic
         Container(
           height: 200,
           padding: const EdgeInsets.all(16),
           child: BarChart(
             BarChartData(
               alignment: BarChartAlignment.spaceAround,
-              maxY: (forecast.last as num).toDouble() * 1.3, // Dynamic scaling
+              maxY: (forecast.last as num).toDouble() * 1.3,
               barTouchData: BarTouchData(enabled: true),
               titlesData: const FlTitlesData(show: false),
               borderData: FlBorderData(show: false),
-              gridData: const FlGridData(show: false),
               barGroups: [
                 _buildBar(0, forecast[0], Colors.lightBlue.shade200),
                 _buildBar(1, forecast[1], Colors.lightBlue.shade300),
@@ -302,7 +269,6 @@ Widget _buildReportView() {
     );
   }
 
-  // --- HELPER FUNCTIONS ---
   BarChartGroupData _buildBar(int x, dynamic y, Color color) {
     double value = (y as num).toDouble();
     return BarChartGroupData(x: x, barRods: [
@@ -320,10 +286,10 @@ Widget _buildReportView() {
     ]);
   }
 
-  Widget _buildStatusCard(String title, String msg, Color bgColor, Color textColor) {
+  Widget _buildStatusCard(String title, String msg, Color bgColor, Color textColor, IconData icon) {
     return Container(
       padding: const EdgeInsets.all(12),
-      height: 120,
+      height: 130,
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(8),
@@ -332,9 +298,11 @@ Widget _buildReportView() {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(title, style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text(msg, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          Icon(icon, color: textColor, size: 24),
+          const SizedBox(height: 4),
+          Text(title, style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 13)),
+          const SizedBox(height: 4),
+          Text(msg, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
         ],
       ),
     );

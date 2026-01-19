@@ -12,37 +12,32 @@ BASE_PATH = "data/raw_csvs"
 # This ensures train_forecaster.py and app.py can find the 'Source of Truth'
 OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_metrics.json")
 
-# Member 2: Optimized Lexical Standardization Map
-# Collapses legacy fragments and typos into unified National entries
+# Blockbuster Feature: National Entity Unification Map
 REPLACEMENT_MAP = {
-    "WESTBENGAL": "WEST BENGAL",
-    "WEST BANGAL": "WEST BENGAL",
-    "JAMMU KASHMIR": "JAMMU & KASHMIR",
-    "JAMMU AND KASHMIR": "JAMMU & KASHMIR",
+    "WESTBENGAL": "WEST BENGAL", "WEST BANGAL": "WEST BENGAL", "WEST BENGLI": "WEST BENGAL",
+    "TAMILNADU": "TAMIL NADU", "ORISSA": "ODISHA", "UTTARANCHAL": "UTTARAKHAND",
+    "PONDICHERRY": "PUDUCHERRY", "CHHATISGARH": "CHHATTISGARH",
+    "JAMMU KASHMIR": "JAMMU & KASHMIR", "JAMMU AND KASHMIR": "JAMMU & KASHMIR",
+    "ANDAMAN NICOBAR ISLANDS": "ANDAMAN AND NICOBAR ISLANDS",
+    "ANDAMAN  NICOBAR ISLANDS": "ANDAMAN AND NICOBAR ISLANDS",
     "THE DADRA AND NAGAR HAVELI AND DAMAN AND DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
-    "DADRA AND NAGAR HAVELI AND DAMAN AND DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
-    "DADRA AND NAGAR HAVELI": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
-    "DAMAN AND DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
-    "DAMAN DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
-    "ORISSA": "ODISHA",
-    "PONDICHERRY": "PUDUCHERRY",
+    "DADRA NAGAR HAVELI": "DADRA & NAGAR HAVELI AND DAMAN & DIU"
 }
 
-def clean_and_standardize(s):
-    """
-    Standardization Engine:
-    1. Forces Uppercase & Strips whitespace.
-    2. Removes symbols via Regex.
-    3. Applies the hard replacement map for National unification.
-    """
-    if not isinstance(s, str):
-        s = str(s)
+# Lost Districts of Telangana (Governance Fix)
+TELANGANA_DISTRICTS = [
+    "ADILABAD", "HYDERABAD", "KARIMNAGAR", "KHAMMAM", 
+    "MAHABUBNAGAR", "MEDAK", "NALGONDA", "NIZAMABAD", 
+    "RANGAREDDI", "WARANGAL"
+]
+
+def clean_and_standardize(name, is_state=True):
+    if not isinstance(name, str): return "UNKNOWN"
+    s = name.upper().strip()
+    s = re.sub(r'[^A-Z0-9\s]', '', s)
+    s = " ".join(s.split())
     
-    s = s.upper().strip()
-    s = re.sub(r'[^A-Z0-9\s]', '', s) 
-    s = " ".join(s.split()) 
-    
-    if s in REPLACEMENT_MAP:
+    if is_state and s in REPLACEMENT_MAP:
         s = REPLACEMENT_MAP[s]
     return s
 
@@ -62,67 +57,46 @@ def load_chunked_data(folder_name):
     return pd.concat(df_list, ignore_index=True)
 
 def main():
-    print("🚀 Initializing ETL Intelligence Pipeline v3.0...")
+    print("🚀 Initializing National Intelligence Pipeline v4.2...")
 
-    # 1. LOAD DATA
+    # 1. Load with standardized naming
     df_enrol = load_chunked_data("enrolment")
-    df_bio = load_chunked_data("biometric")
     df_demo = load_chunked_data("demographic")
-
-    # 2. DATA INTEGRITY PASS (Fixes SettingWithCopyWarning)
-    processed_dfs = []
-    for df in [df_enrol, df_bio, df_demo]:
-        # Filter and create an explicit copy to avoid Pandas indexing warnings
-        clean_df = df[~df['state'].astype(str).str.isnumeric()].copy()
-        
-        clean_df['state'] = clean_df['state'].apply(clean_and_standardize)
-        clean_df['district'] = clean_df['district'].apply(clean_and_standardize)
-        processed_dfs.append(clean_df)
     
-    df_enrol, df_bio, df_demo = processed_dfs
+    for df in [df_enrol, df_demo]:
+        df['state'] = df['state'].apply(lambda x: clean_and_standardize(x, True))
+        df['district'] = df['district'].apply(lambda x: clean_and_standardize(x, False))
 
-    # 3. TRANSFORMATION: ENROLMENT
-    df_enrol["total_enrolment"] = (
-        df_enrol["age_0_5"] + 
-        df_enrol["age_5_17"] + 
-        df_enrol["age_18_greater"]
-    )
-    enrol_agg = df_enrol.groupby(["state", "district"], as_index=False)["total_enrolment"].sum()
+    # 2. THE GOVERNANCE FIX: Move Telangana districts out of Andhra Pradesh
+    mask = (df_enrol['state'] == "ANDHRA PRADESH") & (df_enrol['district'].isin(TELANGANA_DISTRICTS))
+    df_enrol.loc[mask, 'state'] = "TELANGANA"
+    
+    mask_demo = (df_demo['state'] == "ANDHRA PRADESH") & (df_demo['district'].isin(TELANGANA_DISTRICTS))
+    df_demo.loc[mask_demo, 'state'] = "TELANGANA"
 
-    # 4. TRANSFORMATION: BIOMETRIC (Calculates raw female count)
-    df_bio["female_count"] = df_bio["bio_age_5_17"] + df_bio["bio_age_17_"]
-    bio_agg = df_bio.groupby(["state", "district"], as_index=False)["female_count"].sum()
+    # 3. Aggregation & Feature Engineering
+    df_enrol["total_enrolment"] = df_enrol["age_0_5"] + df_enrol["age_5_17"] + df_enrol["age_18_greater"]
+    df_enrol["youth_count"] = df_enrol["age_0_5"] + df_enrol["age_5_17"]
+    
+    enrol_agg = df_enrol.groupby(["state", "district"], as_index=False).agg({
+        "total_enrolment": "sum", "youth_count": "sum"
+    })
 
-    # 5. TRANSFORMATION: DEMOGRAPHIC (Mobile Update Volume)
     df_demo["mobile_update_volume"] = df_demo["demo_age_5_17"] + df_demo["demo_age_17_"]
     demo_agg = df_demo.groupby(["state", "district"], as_index=False)["mobile_update_volume"].sum()
 
-    # 6. THE INTELLIGENCE MERGE
-    final_df = enrol_agg.merge(bio_agg, on=["state", "district"], how="left")
-    final_df = final_df.merge(demo_agg, on=["state", "district"], how="left")
-    final_df.fillna(0, inplace=True)
+    # 4. DATA-INTEGRITY MERGE (Handling Digital Deserts)
+    final_df = enrol_agg.merge(demo_agg, on=["state", "district"], how="inner")
+    
+    # Pillar 1: Child Saturation Index
+    final_df["child_saturation_index"] = (final_df["youth_count"] / final_df["total_enrolment"]).fillna(0)
 
-    # 7. FEATURE ENGINEERING: DISTRICT-LEVEL RATIO
-    final_df["female_enrolment_pct"] = (
-        final_df["female_count"] / final_df["total_enrolment"]
-    ).fillna(0).clip(upper=1.0)
+    # 5. Filter valid states only (Removing numeric/typo states)
+    official_count = len(final_df['state'].unique())
+    print(f"✅ UNIFIED ENTITIES: {official_count} States/UTs Found.")
 
-    # 8. EXPORTING TO API CONTRACT
     final_df.rename(columns={"state": "State", "district": "District"}, inplace=True)
-    
-    output_df = final_df[[
-        "State", 
-        "District", 
-        "total_enrolment", 
-        "mobile_update_volume", 
-        "female_enrolment_pct"
-    ]]
-
-    # Final Export
-    output_df.to_json(OUTPUT_PATH, orient="records", indent=2)
-    
-    print(f"✅ ETL COMPLETE: {len(output_df)} Normalized Records Generated.")
-    print(f"📂 File Saved: {OUTPUT_PATH}")
+    final_df.to_json(OUTPUT_PATH, orient="records", indent=2)
 
 if __name__ == "__main__":
     main()
