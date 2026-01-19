@@ -1,102 +1,97 @@
-import pandas as pd
+import numpy as np
+import pandas as pd  # FIX: Added this to resolve NameError
 import glob
 import json
 import os
 import re
 
 # --- CONFIGURATION ---
-# Points to the directory where the CSVs are stored
 BASE_PATH = "data/raw_csvs"
-
-# CRITICAL PATH FIX: Saves specifically inside the src/etl_pipeline folder 
-# This ensures train_forecaster.py and app.py can find the 'Source of Truth'
 OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_metrics.json")
 
-# Blockbuster Feature: National Entity Unification Map
-REPLACEMENT_MAP = {
-    "WESTBENGAL": "WEST BENGAL", "WEST BANGAL": "WEST BENGAL", "WEST BENGLI": "WEST BENGAL",
-    "TAMILNADU": "TAMIL NADU", "ORISSA": "ODISHA", "UTTARANCHAL": "UTTARAKHAND",
-    "PONDICHERRY": "PUDUCHERRY", "CHHATISGARH": "CHHATTISGARH",
-    "JAMMU KASHMIR": "JAMMU & KASHMIR", "JAMMU AND KASHMIR": "JAMMU & KASHMIR",
-    "ANDAMAN NICOBAR ISLANDS": "ANDAMAN AND NICOBAR ISLANDS",
-    "ANDAMAN  NICOBAR ISLANDS": "ANDAMAN AND NICOBAR ISLANDS",
-    "THE DADRA AND NAGAR HAVELI AND DAMAN AND DIU": "DADRA & NAGAR HAVELI AND DAMAN & DIU",
-    "DADRA NAGAR HAVELI": "DADRA & NAGAR HAVELI AND DAMAN & DIU"
-}
+# THE OFFICIAL 36 STATES/UTs
+# --- STANDARDIZED CONFIGURATION FOR MAP SYNC ---
 
-# Lost Districts of Telangana (Governance Fix)
-TELANGANA_DISTRICTS = [
-    "ADILABAD", "HYDERABAD", "KARIMNAGAR", "KHAMMAM", 
-    "MAHABUBNAGAR", "MEDAK", "NALGONDA", "NIZAMABAD", 
-    "RANGAREDDI", "WARANGAL"
+# Ensure these match the 'name' attribute in SMapIndia.instructions
+OFFICIAL_ENTITIES = [
+    "ANDAMAN AND NICOBAR ISLANDS", "ANDHRA PRADESH", "ARUNACHAL PRADESH", "ASSAM", "BIHAR", 
+    "CHANDIGARH", "CHHATTISGARH", "DADRA AND NAGAR HAVELI AND DAMAN AND DIU", "DELHI", "GOA", 
+    "GUJARAT", "HARYANA", "HIMACHAL PRADESH", "JAMMU AND KASHMIR", "JHARKHAND", "KARNATAKA", 
+    "KERALA", "LADAKH", "LAKSHADWEEP", "MADHYA PRADESH", "MAHARASHTRA", "MANIPUR", "MEGHALAYA", 
+    "MIZORAM", "NAGALAND", "ODISHA", "PUDUCHERRY", "PUNJAB", "RAJASTHAN", "SIKKIM", "TAMIL NADU", 
+    "TELANGANA", "TRIPURA", "UTTAR PRADESH", "UTTARAKHAND", "WEST BENGAL"
 ]
 
-def clean_and_standardize(name, is_state=True):
-    if not isinstance(name, str): return "UNKNOWN"
-    s = name.upper().strip()
-    s = re.sub(r'[^A-Z0-9\s]', '', s)
+# Expanded Permutation Map to catch "Dirty" CSV data
+PERMUTATION_MAP = {
+    "ANDAMAN NICOBAR": "ANDAMAN AND NICOBAR ISLANDS",
+    "ANDAMAN & NICOBAR": "ANDAMAN AND NICOBAR ISLANDS",
+    "ANDAAMAN NICOBAR": "ANDAMAN AND NICOBAR ISLANDS",
+    "ANDAMAN NICOBAR ISLANDS": "ANDAMAN AND NICOBAR ISLANDS",
+    "THE DADRA AND NAGAR HAVELI AND DAMAN AND DIU": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
+    "DADRA NAGAR HAVELI": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
+    "DAMAN AND DIU": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
+    "ORISSA": "ODISHA",
+    "PONDICHERRY": "PUDUCHERRY",
+    "UTTARANCHAL": "UTTARAKHAND",
+    "CHHATISGARH": "CHHATTISGARH",
+    "WESTBENGAL": "WEST BENGAL",
+    "WEST BANGAL": "WEST BENGAL",
+    "WEST BENGLI": "WEST BENGAL",
+    "JAMMU KASHMIR": "JAMMU AND KASHMIR"
+}
+
+TELANGANA_DISTRICTS = ["ADILABAD", "HYDERABAD", "KARIMNAGAR", "KHAMMAM", "MAHABUBNAGAR", "MEDAK", "NALGONDA", "NIZAMABAD", "RANGAREDDI", "WARANGAL"]
+
+def canonicalize(name, is_state=True):
+    if not isinstance(name, str) or any(char.isdigit() for char in name):
+        return "REMOVE_ME"
+    s = name.upper().strip().replace("&", "AND")
+    s = re.sub(r'[^A-Z\s]', '', s)
     s = " ".join(s.split())
-    
-    if is_state and s in REPLACEMENT_MAP:
-        s = REPLACEMENT_MAP[s]
+    if is_state:
+        if s in PERMUTATION_MAP: return PERMUTATION_MAP[s]
+        for official in OFFICIAL_ENTITIES:
+            if official in s or s in official: return official
     return s
 
 def load_chunked_data(folder_name):
     path = os.path.join(BASE_PATH, folder_name, "*.csv")
     files = glob.glob(path)
-    if not files:
-        print(f"⚠️ Warning: No files found in {folder_name}")
-        return pd.DataFrame()
-
-    df_list = []
-    for f in files:
-        temp_df = pd.read_csv(f)
-        temp_df.columns = [c.strip().lower() for c in temp_df.columns]
-        df_list.append(temp_df)
-    
-    return pd.concat(df_list, ignore_index=True)
+    if not files: return pd.DataFrame()
+    return pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 
 def main():
-    print("🚀 Initializing National Intelligence Pipeline v4.2...")
-
-    # 1. Load with standardized naming
+    print("🚀 Initializing Aadhaar-Heal Sanitization Engine v4.9...")
     df_enrol = load_chunked_data("enrolment")
     df_demo = load_chunked_data("demographic")
     
+    if df_enrol.empty or df_demo.empty:
+        print("❌ Data folders empty!")
+        return
+
     for df in [df_enrol, df_demo]:
-        df['state'] = df['state'].apply(lambda x: clean_and_standardize(x, True))
-        df['district'] = df['district'].apply(lambda x: clean_and_standardize(x, False))
-
-    # 2. THE GOVERNANCE FIX: Move Telangana districts out of Andhra Pradesh
-    mask = (df_enrol['state'] == "ANDHRA PRADESH") & (df_enrol['district'].isin(TELANGANA_DISTRICTS))
-    df_enrol.loc[mask, 'state'] = "TELANGANA"
+        df.columns = [c.strip().lower() for c in df.columns]
+        df['state'] = df['state'].apply(lambda x: canonicalize(x, True))
+        df['district'] = df['district'].apply(lambda x: canonicalize(x, False))
+        df.loc[df['district'].isin(TELANGANA_DISTRICTS), 'state'] = "TELANGANA"
     
-    mask_demo = (df_demo['state'] == "ANDHRA PRADESH") & (df_demo['district'].isin(TELANGANA_DISTRICTS))
-    df_demo.loc[mask_demo, 'state'] = "TELANGANA"
-
-    # 3. Aggregation & Feature Engineering
-    df_enrol["total_enrolment"] = df_enrol["age_0_5"] + df_enrol["age_5_17"] + df_enrol["age_18_greater"]
-    df_enrol["youth_count"] = df_enrol["age_0_5"] + df_enrol["age_5_17"]
+    df_enrol = df_enrol[df_enrol['state'] != "REMOVE_ME"]
+    for col in ["age_0_5", "age_5_17", "age_18_greater"]:
+        df_enrol[col] = pd.to_numeric(df_enrol[col], errors='coerce').fillna(0)
     
-    enrol_agg = df_enrol.groupby(["state", "district"], as_index=False).agg({
-        "total_enrolment": "sum", "youth_count": "sum"
-    })
-
-    df_demo["mobile_update_volume"] = df_demo["demo_age_5_17"] + df_demo["demo_age_17_"]
-    demo_agg = df_demo.groupby(["state", "district"], as_index=False)["mobile_update_volume"].sum()
-
-    # 4. DATA-INTEGRITY MERGE (Handling Digital Deserts)
-    final_df = enrol_agg.merge(demo_agg, on=["state", "district"], how="inner")
+    df_enrol["total"] = df_enrol["age_0_5"] + df_enrol["age_5_17"] + df_enrol["age_18_greater"]
+    df_enrol["youth"] = df_enrol["age_0_5"] + df_enrol["age_5_17"]
     
-    # Pillar 1: Child Saturation Index
-    final_df["child_saturation_index"] = (final_df["youth_count"] / final_df["total_enrolment"]).fillna(0)
+    en_agg = df_enrol.groupby(["state", "district"], as_index=False).agg(total_enrolment=('total', 'sum'), youth_count=('youth', 'sum'))
+    de_agg = df_demo.groupby(["state", "district"], as_index=False).agg(mobile_update_volume=('demo_age_17_', 'sum'))
 
-    # 5. Filter valid states only (Removing numeric/typo states)
-    official_count = len(final_df['state'].unique())
-    print(f"✅ UNIFIED ENTITIES: {official_count} States/UTs Found.")
+    final_df = en_agg.merge(de_agg, on=["state", "district"], how="left").fillna(0)
+    final_df = final_df[final_df['state'].isin(OFFICIAL_ENTITIES)]
+    final_df["ratio"] = (final_df["youth_count"] / final_df["total_enrolment"]).replace([np.inf, -np.inf], 0).fillna(0)
 
     final_df.rename(columns={"state": "State", "district": "District"}, inplace=True)
     final_df.to_json(OUTPUT_PATH, orient="records", indent=2)
+    print(f"✅ SUCCESS: {len(final_df)} districts unified into 36 Entities.")
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
