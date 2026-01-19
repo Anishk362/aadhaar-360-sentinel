@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd  # FIX: Added this to resolve NameError
+import pandas as pd
 import glob
 import json
 import os
@@ -10,9 +10,6 @@ BASE_PATH = "data/raw_csvs"
 OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_metrics.json")
 
 # THE OFFICIAL 36 STATES/UTs
-# --- STANDARDIZED CONFIGURATION FOR MAP SYNC ---
-
-# Ensure these match the 'name' attribute in SMapIndia.instructions
 OFFICIAL_ENTITIES = [
     "ANDAMAN AND NICOBAR ISLANDS", "ANDHRA PRADESH", "ARUNACHAL PRADESH", "ASSAM", "BIHAR", 
     "CHANDIGARH", "CHHATTISGARH", "DADRA AND NAGAR HAVELI AND DAMAN AND DIU", "DELHI", "GOA", 
@@ -22,7 +19,7 @@ OFFICIAL_ENTITIES = [
     "TELANGANA", "TRIPURA", "UTTAR PRADESH", "UTTARAKHAND", "WEST BENGAL"
 ]
 
-# Expanded Permutation Map to catch "Dirty" CSV data
+# RESTORED: Your Exact Permutation Map
 PERMUTATION_MAP = {
     "ANDAMAN NICOBAR": "ANDAMAN AND NICOBAR ISLANDS",
     "ANDAMAN & NICOBAR": "ANDAMAN AND NICOBAR ISLANDS",
@@ -62,36 +59,52 @@ def load_chunked_data(folder_name):
     return pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 
 def main():
-    print("🚀 Initializing Aadhaar-Heal Sanitization Engine v4.9...")
+    print("🚀 RGIPT Intelligence Unit: Initializing Multi-Stream Sanitization...")
     df_enrol = load_chunked_data("enrolment")
     df_demo = load_chunked_data("demographic")
+    df_bio = load_chunked_data("biometric") # FIX: Integrated Biometric
     
     if df_enrol.empty or df_demo.empty:
-        print("❌ Data folders empty!")
+        print("❌ CRITICAL: Data source folders are empty!")
         return
 
-    for df in [df_enrol, df_demo]:
+    for df in [df_enrol, df_demo, df_bio]:
         df.columns = [c.strip().lower() for c in df.columns]
         df['state'] = df['state'].apply(lambda x: canonicalize(x, True))
         df['district'] = df['district'].apply(lambda x: canonicalize(x, False))
         df.loc[df['district'].isin(TELANGANA_DISTRICTS), 'state'] = "TELANGANA"
-    
-    df_enrol = df_enrol[df_enrol['state'] != "REMOVE_ME"]
-    for col in ["age_0_5", "age_5_17", "age_18_greater"]:
-        df_enrol[col] = pd.to_numeric(df_enrol[col], errors='coerce').fillna(0)
-    
-    df_enrol["total"] = df_enrol["age_0_5"] + df_enrol["age_5_17"] + df_enrol["age_18_greater"]
-    df_enrol["youth"] = df_enrol["age_0_5"] + df_enrol["age_5_17"]
-    
-    en_agg = df_enrol.groupby(["state", "district"], as_index=False).agg(total_enrolment=('total', 'sum'), youth_count=('youth', 'sum'))
-    de_agg = df_demo.groupby(["state", "district"], as_index=False).agg(mobile_update_volume=('demo_age_17_', 'sum'))
+        # Convert date for monthly normalization
+        df['date'] = pd.to_datetime(df['date'], dayfirst=True, errors='coerce')
+        df['month_key'] = df['date'].dt.to_period('M')
 
-    final_df = en_agg.merge(de_agg, on=["state", "district"], how="left").fillna(0)
+    # Aggregation Strategy: Mean Monthly Pulse (Prevents 12x inflation)
+    df_enrol["total"] = pd.to_numeric(df_enrol["age_0_5"], errors='coerce').fillna(0) + \
+                        pd.to_numeric(df_enrol["age_5_17"], errors='coerce').fillna(0) + \
+                        pd.to_numeric(df_enrol["age_18_greater"], errors='coerce').fillna(0)
+    
+    df_enrol["youth"] = pd.to_numeric(df_enrol["age_0_5"], errors='coerce').fillna(0) + \
+                        pd.to_numeric(df_enrol["age_5_17"], errors='coerce').fillna(0)
+
+    # 1. Group by District and Month to get Monthly Sums, then average those months
+    en_agg = df_enrol.groupby(["state", "district", "month_key"]).agg(m_total=('total', 'sum'), m_youth=('youth', 'sum')).reset_index()
+    en_final = en_agg.groupby(["state", "district"]).agg(total_enrolment=('m_total', 'mean'), youth_count=('m_youth', 'mean')).reset_index()
+
+    de_agg = df_demo.groupby(["state", "district", "month_key"]).agg(m_vol=('demo_age_17_', 'sum')).reset_index()
+    de_final = de_agg.groupby(["state", "district"]).agg(demo_vol=('m_vol', 'mean')).reset_index()
+
+    bio_agg = df_bio.groupby(["state", "district", "month_key"]).agg(m_vol=('bio_age_17_', 'sum')).reset_index()
+    bio_final = bio_agg.groupby(["state", "district"]).agg(bio_vol=('m_vol', 'mean')).reset_index()
+
+    # Merge Streams
+    final_df = en_final.merge(de_final, on=["state", "district"], how="left").merge(bio_final, on=["state", "district"], how="left").fillna(0)
     final_df = final_df[final_df['state'].isin(OFFICIAL_ENTITIES)]
-    final_df["ratio"] = (final_df["youth_count"] / final_df["total_enrolment"]).replace([np.inf, -np.inf], 0).fillna(0)
+    
+    # Accuracy fix for Ratio
+    final_df["ratio"] = (final_df["youth_count"] / (final_df["total_enrolment"] + 1)).clip(0.12, 0.98)
+    final_df["mobile_update_volume"] = final_df["demo_vol"] + final_df["bio_vol"]
 
     final_df.rename(columns={"state": "State", "district": "District"}, inplace=True)
     final_df.to_json(OUTPUT_PATH, orient="records", indent=2)
-    print(f"✅ SUCCESS: {len(final_df)} districts unified into 36 Entities.")
+    print(f"✅ DATA READY: {len(final_df)} districts normalized to Monthly Average Loads.")
 
 if __name__ == "__main__": main()
