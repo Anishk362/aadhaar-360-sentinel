@@ -47,7 +47,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? selectedDistrict;
   bool isLoading = false;
 
-  final String baseUrl = "http://127.0.0.1:5001/api";
+  // --- ENSURE THIS IP MATCHES YOUR PC'S IPv4 ---
+  final String baseUrl = "http://192.168.56.211:5001/api";
 
   @override
   void initState() {
@@ -56,7 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _fetchHeatmap();
   }
 
-  // --- DATA ACQUISITION METHODS ---
+  // --- DATA METHODS ---
 
   Future<void> _fetchMetadata() async {
     try {
@@ -65,7 +66,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() => metadata = json.decode(response.body)['metadata']);
       }
     } catch (e) {
-      _showSnackbar("NETWORK ERROR: SERVER UNREACHABLE");
+      _showSnackbar("CONNECTION ERROR: VERIFY SERVER IP");
     }
   }
 
@@ -76,7 +77,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() => heatmapData = json.decode(response.body)['data']);
       }
     } catch (e) {
-      debugPrint("Heatmap Load Error: $e");
+      debugPrint("Map Sync Error: $e");
     }
   }
 
@@ -90,7 +91,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() => auditData = json.decode(response.body));
       }
     } catch (e) {
-      _showSnackbar("AI SYNC FAILED: RETRYING...");
+      _showSnackbar("SYNC FAILED: CHECK FIREWALL");
     } finally {
       setState(() => isLoading = false);
     }
@@ -104,32 +105,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ));
   }
 
-  // --- UI BUILDING METHODS ---
+  // --- UI COMPONENTS ---
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: _buildAppBar(),
-      body: Stack(
-        children: [
-          _buildBackgroundGradient(),
-          _buildDataParticleOverlay(),
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20.0),
-              child: Column(
-                children: [
-                  const SizedBox(height: 10),
-                  _buildGlassPanel(_buildSelectionDropdowns(), glow: const Color(0xFFD4AF37)),
-                  const SizedBox(height: 24),
-                  _buildMainContent(),
-                  const SizedBox(height: 40),
-                ],
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: _buildAppBar(),
+        body: Stack(
+          children: [
+            _buildBackgroundGradient(),
+            _buildDataParticleOverlay(),
+            SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 10),
+                    _buildGlassPanel(_buildSelectionDropdowns(), glow: const Color(0xFFD4AF37)),
+                    const SizedBox(height: 24),
+                    _buildMainContent(),
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -167,7 +171,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: GridView.builder(
         physics: const NeverScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 15),
-        itemBuilder: (context, index) => Center(child: Container(width: 1.5, height: 1.5, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle))),
+        itemBuilder: (context, index) => Center(child: Container(width: 1, height: 1, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle))),
       ),
     );
   }
@@ -186,6 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       children: [
         DropdownButtonFormField<String>(
+          isExpanded: true, // <--- ADDED THIS LINE (Fixes the overflow)
           dropdownColor: const Color(0xFF112240),
           style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
           decoration: _inputStyle("GEO-SPATIAL SCOPE (STATE)", Icons.language),
@@ -202,6 +207,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
+          isExpanded: true, // <--- ADDED THIS LINE (Safety for the second dropdown)
           dropdownColor: const Color(0xFF112240),
           style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
           decoration: _inputStyle("REGIONAL DRILLDOWN (DISTRICT)", Icons.gps_fixed),
@@ -224,19 +230,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Text("NATIONAL AUDIT HEATMAP", style: GoogleFonts.orbitron(letterSpacing: 4, fontSize: 11, color: Colors.white70)),
         const SizedBox(height: 25),
-        SizedBox(
+        // FIXED: Container with forced constraints and FittedBox to fix the glitch
+        Container(
           height: 380,
-          child: SimpleMap(
-            instructions: SMapIndia.instructions,
-            defaultColor: Colors.white.withOpacity(0.05),
-            colors: _generateNeonMapColors(),
-            callback: (id, name, taparea) {
-              setState(() {
-                selectedState = name.toUpperCase();
-                selectedDistrict = null;
-                _fetchAuditReport();
-              });
-            },
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(30),
+          ),
+          child: FittedBox(
+            fit: BoxFit.contain, // Prevents the map from stretching and glitching
+            child: SizedBox(
+              width: 500, // Fixed internal width for vector stability
+              height: 600,
+              child: SimpleMap(
+                instructions: SMapIndia.instructions,
+                defaultColor: Colors.white.withOpacity(0.05),
+                colors: _generateNeonMapColors(),
+                callback: (id, name, taparea) {
+                  setState(() {
+                    selectedState = name.toUpperCase();
+                    selectedDistrict = null;
+                    _fetchAuditReport();
+                  });
+                },
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 20),
@@ -288,17 +308,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 PieChart(PieChartData(
                   sectionsSpace: 2,
-                  centerSpaceRadius: 50,
-                  startDegreeOffset: 270,
+                  centerSpaceRadius: 55,
                   sections: [
-                    // Active Section (Enrolled)
                     PieChartSectionData(
                       value: coveredValue,
                       color: const Color(0xFFD4AF37),
-                      radius: 25,
+                      radius: 22,
                       showTitle: false,
                     ),
-                    // Inactive Section (Pending)
                     PieChartSectionData(
                       value: (100 - coveredValue).clamp(0, 100),
                       color: Colors.white.withOpacity(0.05),
@@ -307,44 +324,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ],
                 )),
-                // Center Widget
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      "${coveredValue.toStringAsFixed(1)}%",
-                      style: GoogleFonts.orbitron(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFFD4AF37),
-                      ),
-                    ),
-                    Text(
-                      "Enrolled",
-                      style: GoogleFonts.inter(
-                        fontSize: 10,
-                        color: Colors.white60,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+                    Text("${coveredValue.toStringAsFixed(1)}%", style: GoogleFonts.orbitron(fontSize: 22, fontWeight: FontWeight.bold, color: const Color(0xFFD4AF37))),
+                    Text("ENROLLED", style: GoogleFonts.inter(fontSize: 9, color: Colors.white30, fontWeight: FontWeight.bold, letterSpacing: 1)),
                   ],
                 ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          // Legend
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _buildChartLegend(const Color(0xFFD4AF37), "Enrolled"),
-              const SizedBox(width: 16),
-              _buildChartLegend(Colors.white.withOpacity(0.2), "Pending"),
+              const SizedBox(width: 20),
+              _buildChartLegend(Colors.white.withOpacity(0.1), "Pending"),
             ],
           ),
           const SizedBox(height: 16),
           Text("${cards['inclusivity']['status']}", style: GoogleFonts.orbitron(color: const Color(0xFFD4AF37), fontSize: 12, fontWeight: FontWeight.bold)),
-          const Text("Saturation Status", style: TextStyle(color: Colors.white30, fontSize: 9)),
+          const Text("Regional Saturation Level", style: TextStyle(color: Colors.white30, fontSize: 9)),
         ],
       ),
       glow: const Color(0xFFD4AF37),
@@ -352,17 +353,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildChartLegend(Color color, String label) {
-    return Row(
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle, boxShadow: [BoxShadow(color: color.withOpacity(0.5), blurRadius: 4)]),
-        ),
-        const SizedBox(width: 6),
-        Text(label, style: GoogleFonts.inter(fontSize: 10, color: Colors.white70)),
-      ],
-    );
+    return Row(children: [
+      Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+      const SizedBox(width: 6),
+      Text(label, style: const TextStyle(fontSize: 9, color: Colors.white54)),
+    ]);
   }
 
   Widget _buildPerformanceTiles(Map cards) {
@@ -379,7 +374,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _buildSectionHeader("PILLAR III: 90-DAY LOAD PREDICTION", Icons.online_prediction),
+        // FIXED: Wrapped in Expanded to prevents pushing the right-side badge off-screen
+        Expanded(
+          child: _buildSectionHeader("PILLAR III: 90-DAY LOAD PREDICTION", Icons.online_prediction),
+        ),
+        const SizedBox(width: 8), // Added spacing so text doesn't touch the badge
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFD4AF37), width: 0.5)),
@@ -426,7 +425,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ));
   }
 
-  // --- HELPER WIDGETS ---
+  // --- REUSABLE BUILDERS ---
 
   Widget _buildGlassPanel(Widget child, {Color glow = Colors.white12}) {
     return ClipRRect(
@@ -468,7 +467,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Row(children: [
       Icon(icon, size: 16, color: const Color(0xFFD4AF37)),
       const SizedBox(width: 8),
-      Text(title, style: GoogleFonts.orbitron(fontSize: 9, color: Colors.white54, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+      // FIXED: Wrapped in Flexible so the text wraps nicely if space is tight
+      Flexible(
+        child: Text(title, style: GoogleFonts.orbitron(fontSize: 9, color: Colors.white54, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+      ),
     ]);
   }
 
